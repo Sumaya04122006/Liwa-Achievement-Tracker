@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Create Account | LiwaTrack</title>
+
+    <link
+        rel="stylesheet"
+        href="css/style.css"
+    >
+
+</head>
+
+
+<body class="auth-page">
+
+
+    <div class="auth-container">
+
+
+        <!-- BRAND -->
+
+        <div class="auth-brand">
+
+            <a
+                href="index.html"
+                class="logo"
+            >
+
+                <div class="logo-mark">
+                    LA
+                </div>
+
+                <span>
+                    Liwa<span>Track</span>
+                </span>
+
+            </a>
+
+        </div>
+
+
+        <!-- REGISTER CARD -->
+
+        <div class="auth-card">
+
+
+            <div class="auth-header">
+
+                <h1>
+                    Create your account
+                </h1>
+
+                <p>
+                    Start building your achievement profile.
+                </p>
+
+            </div>
+
+
+            <!-- REGISTER FORM -->
+
+            <form id="registerForm">
+
+
+                <!-- NAME -->
+
+                <div class="two-inputs">
+
+
+                    <div>
+
+                        <label for="firstName">
+                            First name
+                        </label>
+
+                        <input
+                            type="text"
+                            id="firstName"
+                            autocomplete="given-name"
+                            required
+                        >
+
+                    </div>
+
+
+                    <div>
+
+                        <label for="lastName">
+                            Last name
+                        </label>
+
+                        <input
+                            type="text"
+                            id="lastName"
+                            autocomplete="family-name"
+                            required
+                        >
+
+                    </div>
+
+
+                </div>
+
+
+                <!-- EMAIL -->
+
+                <label for="email">
+                    University email
+                </label>
+
+                <input
+                    type="email"
+                    id="email"
+                    placeholder="yourname@lu.ac.ae"
+                    autocomplete="email"
+                    required
+                >
+
+
+                <!-- UNIVERSITY ID -->
+
+                <label for="universityId">
+                    University ID
+                </label>
+
+                <input
+                    type="text"
+                    id="universityId"
+                    placeholder="22501000039"
+                    autocomplete="off"
+                    required
+                >
+
+
+                <!-- PASSWORD -->
+
+                <label for="password">
+                    Password
+                </label>
+
+                <input
+                    type="password"
+                    id="password"
+                    minlength="6"
+                    autocomplete="new-password"
+                    required
+                >
+
+
+                <!-- TERMS -->
+
+                <label class="checkbox-label terms">
+
+                    <input
+                        type="checkbox"
+                        id="terms"
+                        required
+                    >
+
+                    I agree to the terms and privacy policy.
+
+                </label>
+
+
+                <!-- ERROR MESSAGE -->
+
+                <div
+                    id="registerError"
+                    style="
+                        display:none;
+                        margin-bottom:15px;
+                        padding:10px 12px;
+                        border-radius:8px;
+                        background:#fff1f1;
+                        color:#c62828;
+                        font-size:14px;
+                    "
+                ></div>
+
+
+                <!-- SUBMIT -->
+
+                <button
+                    class="btn btn-primary full-width"
+                    type="submit"
+                    id="registerButton"
+                >
+                    Create Account
+                </button>
+
+
+            </form>
+
+
+            <!-- LOGIN -->
+
+            <p class="auth-footer">
+
+                Already have an account?
+
+                <a href="login.html">
+                    Sign in
+                </a>
+
+            </p>
+
+
+        </div>
+
+
+    </div>
+
+
+    <!-- SHARED JAVASCRIPT -->
+
+    <script src="js/data.js"></script>
+
+    <script src="js/app.js"></script>
+
+
+    <!-- REGISTRATION LOGIC -->
+
+    <script>
+
+        document
+            .getElementById("registerForm")
+            .addEventListener(
+                "submit",
+                async function (e) {
+
+                    e.preventDefault();
+
+
+                    // =========================================
+                    // GET FORM VALUES
+                    // =========================================
+
+                    const firstName =
+                        document
+                            .getElementById("firstName")
+                            .value
+                            .trim();
+
+                    const lastName =
+                        document
+                            .getElementById("lastName")
+                            .value
+                            .trim();
+
+                    const email =
+                        document
+                            .getElementById("email")
+                            .value
+                            .trim()
+                            .toLowerCase();
+
+                    const universityId =
+                        document
+                            .getElementById("universityId")
+                            .value
+                            .trim();
+
+                    const password =
+                        document
+                            .getElementById("password")
+                            .value;
+
+
+                    const name =
+                        `${firstName} ${lastName}`.trim();
+
+
+                    // =========================================
+                    // ELEMENTS
+                    // =========================================
+
+                    const button =
+                        document
+                            .getElementById(
+                                "registerButton"
+                            );
+
+                    const errorBox =
+                        document
+                            .getElementById(
+                                "registerError"
+                            );
+
+
+                    // Clear previous error
+
+                    errorBox.style.display =
+                        "none";
+
+                    errorBox.textContent =
+                        "";
+
+
+                    // =========================================
+                    // BASIC VALIDATION
+                    // =========================================
+
+                    if (!firstName || !lastName) {
+
+                        errorBox.textContent =
+                            "Please enter your first and last name.";
+
+                        errorBox.style.display =
+                            "block";
+
+                        return;
+
+                    }
+
+
+                    if (!email.endsWith("@lu.ac.ae")) {
+
+                        errorBox.textContent =
+                            "Please use your Liwa University email address.";
+
+                        errorBox.style.display =
+                            "block";
+
+                        return;
+
+                    }
+
+
+                    if (!universityId) {
+
+                        errorBox.textContent =
+                            "Please enter your University ID.";
+
+                        errorBox.style.display =
+                            "block";
+
+                        return;
+
+                    }
+
+
+                    if (password.length < 6) {
+
+                        errorBox.textContent =
+                            "Password must contain at least 6 characters.";
+
+                        errorBox.style.display =
+                            "block";
+
+                        return;
+
+                    }
+
+
+                    // =========================================
+                    // DISABLE BUTTON
+                    // =========================================
+
+                    button.disabled =
+                        true;
+
+                    button.textContent =
+                        "Creating account...";
+
+
+                    try {
+
+
+                        // =========================================
+                        // SEND DATA TO FASTAPI
+                        // =========================================
+
+                        const response =
+                            await fetch(
+                                `${API_URL}/auth/register`,
+                                {
+                                    method: "POST",
+
+                                    headers: {
+                                        "Content-Type":
+                                            "application/json"
+                                    },
+
+                                    body:
+                                        JSON.stringify({
+                                            name:
+                                                name,
+
+                                            email:
+                                                email,
+
+                                            university_id:
+                                                universityId,
+
+                                            password:
+                                                password
+                                        })
+                                }
+                            );
+
+
+                        // =========================================
+                        // READ RESPONSE
+                        // =========================================
+
+                        const data =
+                            await response.json();
+
+
+                        // =========================================
+                        // HANDLE ERROR
+                        // =========================================
+
+                        if (!response.ok) {
+
+                            throw new Error(
+                                data.detail ||
+                                "Registration failed."
+                            );
+
+                        }
+
+
+                        // =========================================
+                        // SUCCESS
+                        // =========================================
+
+                        alert(
+                            "Account created successfully! Please sign in."
+                        );
+
+
+                        window.location.href =
+                            "login.html";
+
+
+                    } catch (error) {
+
+
+                        console.error(
+                            "Registration error:",
+                            error
+                        );
+
+
+                        // Show error
+
+                        errorBox.textContent =
+                            error.message ||
+                            "Something went wrong. Please try again.";
+
+                        errorBox.style.display =
+                            "block";
+
+
+                        // Re-enable button
+
+                        button.disabled =
+                            false;
+
+                        button.textContent =
+                            "Create Account";
+
+                    }
+
+                }
+            );
+
+    </script>
+
+
+</body>
+
+</html>
