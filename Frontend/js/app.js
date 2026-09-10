@@ -1,5 +1,4 @@
-const API_URL = https://liwa-achievement-tracker-api.onrender.com/git add Frontend/js/app.js;
-
+const API_URL = window.API_URL = "https://liwa-achievement-tracker-api.onrender.com";
 
 // ==========================================
 // AUTHENTICATION
