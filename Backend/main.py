@@ -23,7 +23,6 @@ from database import (
     get_connection
 )
 
-
 # =========================================
 # CERTIFICATE STORAGE
 # =========================================
@@ -35,7 +34,6 @@ os.makedirs(
     exist_ok=True
 )
 
-
 # =========================================
 # FASTAPI APPLICATION
 # =========================================
@@ -45,7 +43,6 @@ app = FastAPI(
     description="Backend API for Liwa University Achievement Tracker",
     version="1.0.0"
 )
-
 
 # =========================================
 # SERVE CERTIFICATE FILES
@@ -59,7 +56,6 @@ app.mount(
     name="certificates"
 )
 
-
 # =========================================
 # CORS
 # =========================================
@@ -71,7 +67,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # =========================================
 # PASSWORD HASHING
@@ -93,7 +88,6 @@ def hash_password(
     return (
         f"{salt}${password_hash.hex()}"
     )
-
 
 def verify_password(
     password: str,
@@ -125,7 +119,6 @@ def verify_password(
 
         return False
 
-
 # =========================================
 # SESSION TOKEN
 # =========================================
@@ -134,13 +127,11 @@ def create_session_token() -> str:
 
     return secrets.token_urlsafe(32)
 
-
 # =========================================
 # ACTIVE SESSIONS
 # =========================================
 
 active_sessions = {}
-
 
 def get_current_user_id(
     session_token: str
@@ -159,7 +150,6 @@ def get_current_user_id(
 
     return user_id
 
-
 # =========================================
 # DATABASE STARTUP
 # =========================================
@@ -168,7 +158,6 @@ def get_current_user_id(
 def startup():
 
     create_tables()
-
 
 # =========================================
 # MODELS
@@ -192,7 +181,6 @@ class Achievement(BaseModel):
 
     visibility: Optional[str] = "public"
 
-
 class Profile(BaseModel):
 
     name: str
@@ -213,7 +201,6 @@ class Profile(BaseModel):
 
     github: Optional[str] = ""
 
-
 class RegisterRequest(BaseModel):
 
     name: str
@@ -224,13 +211,11 @@ class RegisterRequest(BaseModel):
 
     password: str
 
-
 class LoginRequest(BaseModel):
 
     email: EmailStr
 
     password: str
-
 
 # =========================================
 # ROOT
@@ -249,7 +234,6 @@ def root():
 
     }
 
-
 # =========================================
 # HEALTH
 # =========================================
@@ -263,7 +247,6 @@ def health_check():
             "healthy"
 
     }
-
 
 # =========================================
 # DATABASE CHECK
@@ -282,7 +265,6 @@ def database_check():
             "Database connected successfully"
 
     }
-
 
 # =========================================
 # AUTHENTICATION
@@ -309,7 +291,6 @@ def register_user(
 
     password = request.password
 
-
     # =========================================
     # VALIDATION
     # =========================================
@@ -321,14 +302,12 @@ def register_user(
             detail="Name is required."
         )
 
-
     if not university_id:
 
         raise HTTPException(
             status_code=400,
             detail="University ID is required."
         )
-
 
     if len(password) < 6:
 
@@ -340,11 +319,9 @@ def register_user(
             )
         )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     # =========================================
     # CHECK EXISTING EMAIL
@@ -354,7 +331,7 @@ def register_user(
         """
         SELECT id
         FROM users
-        WHERE email = ?
+        WHERE email = %s
         """,
         (email,)
     )
@@ -362,7 +339,6 @@ def register_user(
     existing_email = (
         cursor.fetchone()
     )
-
 
     if existing_email:
 
@@ -376,7 +352,6 @@ def register_user(
             )
         )
 
-
     # =========================================
     # CHECK EXISTING UNIVERSITY ID
     # =========================================
@@ -385,7 +360,7 @@ def register_user(
         """
         SELECT id
         FROM users
-        WHERE university_id = ?
+        WHERE university_id = %s
         """,
         (university_id,)
     )
@@ -393,7 +368,6 @@ def register_user(
     existing_id = (
         cursor.fetchone()
     )
-
 
     if existing_id:
 
@@ -407,7 +381,6 @@ def register_user(
             )
         )
 
-
     # =========================================
     # HASH PASSWORD
     # =========================================
@@ -415,7 +388,6 @@ def register_user(
     password_hash = hash_password(
         password
     )
-
 
     # =========================================
     # CREATE USER
@@ -430,7 +402,8 @@ def register_user(
             university_id,
             password_hash
         )
-        VALUES (?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id
         """,
         (
             name,
@@ -440,8 +413,7 @@ def register_user(
         )
     )
 
-    user_id = cursor.lastrowid
-
+    user_id = cursor.fetchone()["id"]
 
     # =========================================
     # CREATE PROFILE
@@ -462,7 +434,7 @@ def register_user(
             linkedin,
             github
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             user_id,
@@ -478,11 +450,9 @@ def register_user(
         )
     )
 
-
     connection.commit()
 
     connection.close()
-
 
     return {
 
@@ -503,7 +473,6 @@ def register_user(
 
     }
 
-
 # -----------------------------------------
 # LOGIN
 # -----------------------------------------
@@ -519,17 +488,15 @@ def login_user(
 
     password = request.password
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
         SELECT *
         FROM users
-        WHERE email = ?
+        WHERE email = %s
         """,
         (email,)
     )
@@ -538,7 +505,6 @@ def login_user(
 
     connection.close()
 
-
     if user is None:
 
         raise HTTPException(
@@ -546,12 +512,10 @@ def login_user(
             detail="Invalid email or password."
         )
 
-
     password_valid = verify_password(
         password,
         user["password_hash"]
     )
-
 
     if not password_valid:
 
@@ -560,16 +524,13 @@ def login_user(
             detail="Invalid email or password."
         )
 
-
     session_token = (
         create_session_token()
     )
 
-
     active_sessions[
         session_token
     ] = user["id"]
-
 
     return {
 
@@ -593,7 +554,6 @@ def login_user(
 
     }
 
-
 # -----------------------------------------
 # CURRENT USER
 # -----------------------------------------
@@ -607,11 +567,9 @@ def get_current_user(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
@@ -621,16 +579,14 @@ def get_current_user(
             email,
             university_id
         FROM users
-        WHERE id = ?
+        WHERE id = %s
         """,
         (user_id,)
     )
 
-
     user = cursor.fetchone()
 
     connection.close()
-
 
     if user is None:
 
@@ -638,7 +594,6 @@ def get_current_user(
             status_code=404,
             detail="User not found."
         )
-
 
     return {
 
@@ -659,7 +614,6 @@ def get_current_user(
 
     }
 
-
 # =========================================
 # ACHIEVEMENTS
 # =========================================
@@ -677,33 +631,28 @@ def get_achievements(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
         SELECT *
         FROM achievements
-        WHERE user_id = ?
+        WHERE user_id = %s
         ORDER BY id DESC
         """,
         (user_id,)
     )
 
-
     achievements = cursor.fetchall()
 
     connection.close()
-
 
     return [
         dict(achievement)
         for achievement in achievements
     ]
-
 
 # -----------------------------------------
 # ADD ACHIEVEMENT
@@ -719,11 +668,9 @@ def add_achievement(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
@@ -739,7 +686,8 @@ def add_achievement(
             certificate,
             visibility
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         (
             user_id,
@@ -754,15 +702,11 @@ def add_achievement(
         )
     )
 
+    achievement_id = cursor.fetchone()["id"]
 
     connection.commit()
 
-    achievement_id = (
-        cursor.lastrowid
-    )
-
     connection.close()
-
 
     return {
 
@@ -773,7 +717,6 @@ def add_achievement(
             achievement_id
 
     }
-
 
 # -----------------------------------------
 # GET ONE ACHIEVEMENT
@@ -791,18 +734,16 @@ def get_achievement(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
         SELECT *
         FROM achievements
-        WHERE id = ?
-        AND user_id = ?
+        WHERE id = %s
+        AND user_id = %s
         """,
         (
             achievement_id,
@@ -810,13 +751,11 @@ def get_achievement(
         )
     )
 
-
     achievement = (
         cursor.fetchone()
     )
 
     connection.close()
-
 
     if achievement is None:
 
@@ -825,9 +764,7 @@ def get_achievement(
             detail="Achievement not found."
         )
 
-
     return dict(achievement)
-
 
 # -----------------------------------------
 # UPDATE ACHIEVEMENT
@@ -846,28 +783,26 @@ def update_achievement(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
         UPDATE achievements
 
         SET
-            title = ?,
-            category = ?,
-            organization = ?,
-            date = ?,
-            description = ?,
-            skills = ?,
-            certificate = ?,
-            visibility = ?
+            title = %s,
+            category = %s,
+            organization = %s,
+            date = %s,
+            description = %s,
+            skills = %s,
+            certificate = %s,
+            visibility = %s
 
-        WHERE id = ?
-        AND user_id = ?
+        WHERE id = %s
+        AND user_id = %s
         """,
         (
             achievement.title,
@@ -883,9 +818,7 @@ def update_achievement(
         )
     )
 
-
     connection.commit()
-
 
     if cursor.rowcount == 0:
 
@@ -896,9 +829,7 @@ def update_achievement(
             detail="Achievement not found."
         )
 
-
     connection.close()
-
 
     return {
 
@@ -909,7 +840,6 @@ def update_achievement(
             achievement_id
 
     }
-
 
 # -----------------------------------------
 # DELETE ACHIEVEMENT
@@ -927,17 +857,15 @@ def delete_achievement(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
 
-
     cursor.execute(
         """
         DELETE FROM achievements
-        WHERE id = ?
-        AND user_id = ?
+        WHERE id = %s
+        AND user_id = %s
         """,
         (
             achievement_id,
@@ -945,9 +873,7 @@ def delete_achievement(
         )
     )
 
-
     connection.commit()
-
 
     if cursor.rowcount == 0:
 
@@ -958,9 +884,7 @@ def delete_achievement(
             detail="Achievement not found."
         )
 
-
     connection.close()
-
 
     return {
 
@@ -971,7 +895,6 @@ def delete_achievement(
             achievement_id
 
     }
-
 
 # =========================================
 # CERTIFICATE UPLOAD
@@ -994,7 +917,6 @@ async def upload_certificate(
         session_token
     )
 
-
     # =========================================
     # VALID FILE TYPES
     # =========================================
@@ -1006,16 +928,13 @@ async def upload_certificate(
         ".jpeg"
     }
 
-
     original_filename = (
         certificate.filename or ""
     )
 
-
     extension = os.path.splitext(
         original_filename
     )[1].lower()
-
 
     if extension not in allowed_extensions:
 
@@ -1027,7 +946,6 @@ async def upload_certificate(
             )
         )
 
-
     # =========================================
     # FIND ACHIEVEMENT
     # =========================================
@@ -1036,13 +954,12 @@ async def upload_certificate(
 
     cursor = connection.cursor()
 
-
     cursor.execute(
         """
         SELECT id
         FROM achievements
-        WHERE id = ?
-        AND user_id = ?
+        WHERE id = %s
+        AND user_id = %s
         """,
         (
             achievement_id,
@@ -1050,11 +967,9 @@ async def upload_certificate(
         )
     )
 
-
     achievement = (
         cursor.fetchone()
     )
-
 
     if achievement is None:
 
@@ -1065,7 +980,6 @@ async def upload_certificate(
             detail="Achievement not found."
         )
 
-
     # =========================================
     # CREATE USER FOLDER
     # =========================================
@@ -1075,12 +989,10 @@ async def upload_certificate(
         str(user_id)
     )
 
-
     os.makedirs(
         user_folder,
         exist_ok=True
     )
-
 
     # =========================================
     # SAFE FILE NAME
@@ -1092,12 +1004,10 @@ async def upload_certificate(
         f"{extension}"
     )
 
-
     file_path = os.path.join(
         user_folder,
         filename
     )
-
 
     # =========================================
     # SAVE FILE
@@ -1126,7 +1036,6 @@ async def upload_certificate(
             )
         )
 
-
     # =========================================
     # SAVE PATH IN DATABASE
     # =========================================
@@ -1137,13 +1046,12 @@ async def upload_certificate(
         f"{filename}"
     )
 
-
     cursor.execute(
         """
         UPDATE achievements
-        SET certificate = ?
-        WHERE id = ?
-        AND user_id = ?
+        SET certificate = %s
+        WHERE id = %s
+        AND user_id = %s
         """,
         (
             database_path,
@@ -1152,11 +1060,9 @@ async def upload_certificate(
         )
     )
 
-
     connection.commit()
 
     connection.close()
-
 
     # =========================================
     # RESPONSE
@@ -1175,7 +1081,6 @@ async def upload_certificate(
 
     }
 
-
 # =========================================
 # PROFILE
 # =========================================
@@ -1193,27 +1098,23 @@ def get_profile(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     cursor.execute(
         """
         SELECT *
         FROM student_profile
-        WHERE user_id = ?
+        WHERE user_id = %s
         LIMIT 1
         """,
         (user_id,)
     )
 
-
     profile = cursor.fetchone()
 
     connection.close()
-
 
     if profile is None:
 
@@ -1222,9 +1123,7 @@ def get_profile(
             detail="Profile not found."
         )
 
-
     return dict(profile)
-
 
 # -----------------------------------------
 # UPDATE PROFILE
@@ -1240,11 +1139,9 @@ def update_profile(
         session_token
     )
 
-
     connection = get_connection()
 
     cursor = connection.cursor()
-
 
     # =========================================
     # FIND THIS USER'S PROFILE
@@ -1254,17 +1151,15 @@ def update_profile(
         """
         SELECT id
         FROM student_profile
-        WHERE user_id = ?
+        WHERE user_id = %s
         LIMIT 1
         """,
         (user_id,)
     )
 
-
     existing_profile = (
         cursor.fetchone()
     )
-
 
     # =========================================
     # UPDATE PROFILE
@@ -1276,24 +1171,23 @@ def update_profile(
             existing_profile["id"]
         )
 
-
         cursor.execute(
             """
             UPDATE student_profile
 
             SET
-                name = ?,
-                email = ?,
-                university_id = ?,
-                program = ?,
-                year = ?,
-                bio = ?,
-                skills = ?,
-                linkedin = ?,
-                github = ?
+                name = %s,
+                email = %s,
+                university_id = %s,
+                program = %s,
+                year = %s,
+                bio = %s,
+                skills = %s,
+                linkedin = %s,
+                github = %s
 
-            WHERE id = ?
-            AND user_id = ?
+            WHERE id = %s
+            AND user_id = %s
             """,
             (
                 profile.name,
@@ -1309,7 +1203,6 @@ def update_profile(
                 user_id
             )
         )
-
 
     # =========================================
     # CREATE PROFILE IF MISSING
@@ -1332,7 +1225,8 @@ def update_profile(
                 linkedin,
                 github
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 user_id,
@@ -1348,16 +1242,11 @@ def update_profile(
             )
         )
 
-
-        profile_id = (
-            cursor.lastrowid
-        )
-
+        profile_id = cursor.fetchone()["id"]
 
     connection.commit()
 
     connection.close()
-
 
     return {
 
