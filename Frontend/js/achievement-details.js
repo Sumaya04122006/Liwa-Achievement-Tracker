@@ -50,8 +50,7 @@ document.addEventListener("DOMContentLoaded", async function () {
             certificate !== "false"
         ) {
 
-            const certificateURL =
-                `${API_URL}${certificate}`;
+            const certificateURL = certificate;
 
             const fileExtension =
                 certificate

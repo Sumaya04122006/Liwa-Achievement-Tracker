@@ -6,7 +6,6 @@ from fastapi import (
 )
 
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel, EmailStr
 
@@ -16,7 +15,8 @@ import hashlib
 import hmac
 import secrets
 import os
-import shutil
+
+from supabase import create_client
 
 from database import (
     create_tables,
@@ -24,15 +24,21 @@ from database import (
 )
 
 # =========================================
-# CERTIFICATE STORAGE
+# CERTIFICATE STORAGE (SUPABASE)
 # =========================================
 
-CERTIFICATE_FOLDER = "certificates"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-os.makedirs(
-    CERTIFICATE_FOLDER,
-    exist_ok=True
-)
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError(
+        "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. "
+        "Set them in Backend/.env (and in Render's environment variables)."
+    )
+
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+CERTIFICATE_BUCKET = "certificates"
 
 # =========================================
 # FASTAPI APPLICATION
@@ -42,18 +48,6 @@ app = FastAPI(
     title="LiwaTrack API",
     description="Backend API for Liwa University Achievement Tracker",
     version="1.0.0"
-)
-
-# =========================================
-# SERVE CERTIFICATE FILES
-# =========================================
-
-app.mount(
-    "/certificates",
-    StaticFiles(
-        directory=CERTIFICATE_FOLDER
-    ),
-    name="certificates"
 )
 
 # =========================================
@@ -897,7 +891,7 @@ def delete_achievement(
     }
 
 # =========================================
-# CERTIFICATE UPLOAD
+# CERTIFICATE UPLOAD (SUPABASE STORAGE)
 # =========================================
 
 @app.post(
@@ -981,21 +975,7 @@ async def upload_certificate(
         )
 
     # =========================================
-    # CREATE USER FOLDER
-    # =========================================
-
-    user_folder = os.path.join(
-        CERTIFICATE_FOLDER,
-        str(user_id)
-    )
-
-    os.makedirs(
-        user_folder,
-        exist_ok=True
-    )
-
-    # =========================================
-    # SAFE FILE NAME
+    # BUILD STORAGE PATH
     # =========================================
 
     filename = (
@@ -1004,26 +984,35 @@ async def upload_certificate(
         f"{extension}"
     )
 
-    file_path = os.path.join(
-        user_folder,
-        filename
+    storage_path = f"{user_id}/{filename}"
+
+    # =========================================
+    # READ FILE BYTES
+    # =========================================
+
+    file_bytes = await certificate.read()
+
+    content_type = (
+        certificate.content_type
+        or "application/octet-stream"
     )
 
     # =========================================
-    # SAVE FILE
+    # UPLOAD TO SUPABASE STORAGE
     # =========================================
 
     try:
 
-        with open(
-            file_path,
-            "wb"
-        ) as buffer:
-
-            shutil.copyfileobj(
-                certificate.file,
-                buffer
-            )
+        supabase.storage.from_(
+            CERTIFICATE_BUCKET
+        ).upload(
+            path=storage_path,
+            file=file_bytes,
+            file_options={
+                "content-type": content_type,
+                "upsert": "true"
+            }
+        )
 
     except Exception as error:
 
@@ -1032,19 +1021,21 @@ async def upload_certificate(
         raise HTTPException(
             status_code=500,
             detail=(
-                "Could not save certificate."
+                f"Could not upload certificate: {error}"
             )
         )
 
     # =========================================
-    # SAVE PATH IN DATABASE
+    # GET PUBLIC URL
     # =========================================
 
-    database_path = (
-        f"/certificates/"
-        f"{user_id}/"
-        f"{filename}"
-    )
+    database_path = supabase.storage.from_(
+        CERTIFICATE_BUCKET
+    ).get_public_url(storage_path)
+
+    # =========================================
+    # SAVE URL IN DATABASE
+    # =========================================
 
     cursor.execute(
         """

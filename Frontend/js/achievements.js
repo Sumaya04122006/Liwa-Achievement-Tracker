@@ -523,7 +523,7 @@ function renderCards(data) {
                                     ? `
 
                                         <a
-                                            href="${API_URL}${achievement.certificate}"
+                                            href="${achievement.certificate}"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             class="btn btn-secondary"

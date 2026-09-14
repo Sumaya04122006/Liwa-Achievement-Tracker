@@ -1,5 +1,4 @@
-const API_URL = window.API_URL = "https://liwa-achievement-tracker-api.onrender.com";
-
+const API_URL = window.API_BASE_URL = "https://liwa-achievement-tracker-2.onrender.com";
 // ==========================================
 // AUTHENTICATION
 // ==========================================
