@@ -753,12 +753,35 @@ def get_achievement(
 
     if achievement is None:
 
-        raise HTTPException(
+               raise HTTPException(
             status_code=404,
             detail="Achievement not found."
         )
 
-    return dict(achievement)
+    achievement = dict(achievement)
+
+    certificate = achievement.get("certificate")
+
+    if certificate:
+
+        if certificate.startswith("/certificates/"):
+
+            storage_path = certificate.lstrip("/")
+
+            storage_path = storage_path.replace(
+                "certificates/",
+                "",
+                1
+            )
+
+            achievement["certificate"] = (
+                supabase.storage
+                .from_(CERTIFICATE_BUCKET)
+                .get_public_url(storage_path)
+            )
+
+    return achievement
+
 
 # -----------------------------------------
 # UPDATE ACHIEVEMENT
