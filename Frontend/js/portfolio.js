@@ -37,21 +37,11 @@ document.addEventListener(
 
 
             // =========================================
-            // PROJECTS
-            // =========================================
-
-            const portfolioProjects = [];
-
-
-            // =========================================
             // STATISTICS
             // =========================================
 
             const totalAchievements =
                 publicAchievements.length;
-
-            const totalProjects =
-                portfolioProjects.length;
 
             const totalSkills =
                 profile.skills
@@ -188,89 +178,6 @@ document.addEventListener(
                             >
                                 Add Achievement
                             </a>
-
-                        </div>
-
-                    `;
-
-
-            // =========================================
-            // PROJECTS
-            // =========================================
-
-            const projectsHTML =
-                portfolioProjects.length
-
-                    ? portfolioProjects
-                        .map(
-                            project => `
-
-                                <article
-                                    class="portfolio-project"
-                                >
-
-                                    <div
-                                        class="portfolio-project-icon"
-                                    >
-                                        ↗
-                                    </div>
-
-                                    <h3>
-
-                                        ${escapeHTML(
-                                            project.name
-                                        )}
-
-                                    </h3>
-
-                                    <p>
-
-                                        ${escapeHTML(
-                                            project.description
-                                        )}
-
-                                    </p>
-
-                                    <div
-                                        class="portfolio-tags"
-                                    >
-
-                                        ${
-                                            (
-                                                project.technologies ||
-                                                []
-                                            )
-                                                .map(
-                                                    technology => `
-
-                                                        <span>
-
-                                                            ${escapeHTML(
-                                                                technology
-                                                            )}
-
-                                                        </span>
-
-                                                    `
-                                                )
-                                                .join("")
-                                        }
-
-                                    </div>
-
-                                </article>
-
-                            `
-                        )
-                        .join("")
-
-                    : `
-
-                        <div class="portfolio-empty">
-
-                            <p>
-                                No projects added yet.
-                            </p>
 
                         </div>
 
@@ -517,18 +424,6 @@ document.addEventListener(
                         <div>
 
                             <strong>
-                                ${totalProjects}
-                            </strong>
-
-                            <span>
-                                Projects
-                            </span>
-
-                        </div>
-
-                        <div>
-
-                            <strong>
                                 ${totalSkills}
                             </strong>
 
@@ -624,41 +519,6 @@ document.addEventListener(
                         >
 
                             ${achievementHTML}
-
-                        </div>
-
-                    </section>
-
-
-                    <!-- PROJECTS -->
-
-                    <section
-                        class="portfolio-section"
-                    >
-
-                        <div
-                            class="portfolio-section-heading"
-                        >
-
-                            <div>
-
-                                <span>
-                                    WORK
-                                </span>
-
-                                <h2>
-                                    Projects
-                                </h2>
-
-                            </div>
-
-                        </div>
-
-                        <div
-                            class="portfolio-projects"
-                        >
-
-                            ${projectsHTML}
 
                         </div>
 
