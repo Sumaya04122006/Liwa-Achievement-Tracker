@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                 .filter(skill => skill)
             : [];
 
-        const certificate = achievement.certificate;
+        const certificate = achievement.certificate_url || achievement.certificate || null;
 
         let certificateHTML = `
             <div class="content-card">
