@@ -1,3 +1,4 @@
+
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -25,16 +26,18 @@ from database import (
 
 
 # =========================================
-# CERTIFICATE STORAGE — SUPABASE
+# SUPABASE STORAGE CONFIGURATION
 # =========================================
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv(
+    "SUPABASE_SERVICE_ROLE_KEY"
+)
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     raise RuntimeError(
         "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. "
-        "Set them in Backend/.env and in Render's environment variables."
+        "Set them in Render environment variables."
     )
 
 supabase = create_client(
@@ -44,7 +47,6 @@ supabase = create_client(
 
 CERTIFICATE_BUCKET = "certificates"
 
-# Signed URL validity
 CERTIFICATE_URL_EXPIRY = 3600
 
 
@@ -76,9 +78,7 @@ app.add_middleware(
 # PASSWORD HASHING
 # =========================================
 
-def hash_password(
-    password: str
-) -> str:
+def hash_password(password: str) -> str:
 
     salt = secrets.token_hex(16)
 
@@ -99,11 +99,9 @@ def verify_password(
 
     try:
 
-        salt, stored_hash = (
-            stored_password.split(
-                "$",
-                1
-            )
+        salt, stored_hash = stored_password.split(
+            "$",
+            1
         )
 
         password_hash = hashlib.pbkdf2_hmac(
@@ -118,7 +116,7 @@ def verify_password(
             stored_hash
         )
 
-    except ValueError:
+    except (ValueError, AttributeError):
 
         return False
 
@@ -132,16 +130,19 @@ def create_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-# =========================================
-# ACTIVE SESSIONS
-# =========================================
-
 active_sessions = {}
 
 
 def get_current_user_id(
     session_token: str
 ) -> int:
+
+    if not session_token:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Session token is required."
+        )
 
     user_id = active_sessions.get(
         session_token
@@ -158,14 +159,74 @@ def get_current_user_id(
 
 
 # =========================================
+# CERTIFICATE PATH NORMALIZER
+# =========================================
+
+def normalize_certificate_path(
+    storage_path: Optional[str]
+) -> Optional[str]:
+
+    if not storage_path:
+        return None
+
+    path = str(storage_path).strip()
+
+    if not path:
+        return None
+
+    # Old database format:
+    # /certificates/1/achievement_5.pdf
+    if path.startswith("/certificates/"):
+        path = path[len("/certificates/"):]
+
+    # Old database format:
+    # certificates/1/achievement_5.pdf
+    elif path.startswith("certificates/"):
+        path = path[len("certificates/"):]
+
+    # Supabase public URL accidentally stored in database
+    if "/storage/v1/object/" in path:
+
+        marker = f"/storage/v1/object/"
+
+        path = path.split(marker, 1)[1]
+
+        if path.startswith("sign/"):
+            path = path[5:]
+
+        elif path.startswith("public/"):
+            path = path[7:]
+
+        elif path.startswith("authenticated/"):
+            path = path[14:]
+
+        elif path.startswith("download/"):
+            path = path[9:]
+
+        # Remove bucket name
+        if path.startswith(
+            f"{CERTIFICATE_BUCKET}/"
+        ):
+            path = path[
+                len(CERTIFICATE_BUCKET) + 1:
+            ]
+
+    return path.strip("/")
+
+
+# =========================================
 # SUPABASE SIGNED URL
 # =========================================
 
 def create_certificate_signed_url(
-    storage_path: str
+    storage_path: Optional[str]
 ) -> Optional[str]:
 
-    if not storage_path:
+    normalized_path = normalize_certificate_path(
+        storage_path
+    )
+
+    if not normalized_path:
         return None
 
     try:
@@ -175,30 +236,46 @@ def create_certificate_signed_url(
             .storage
             .from_(CERTIFICATE_BUCKET)
             .create_signed_url(
-                storage_path,
+                normalized_path,
                 CERTIFICATE_URL_EXPIRY
             )
         )
 
-        # Supabase Python client normally returns:
-        # {"signedURL": "..."}
-        #
-        # Some versions may return:
-        # {"signedUrl": "..."}
-
         if isinstance(result, dict):
 
-            signed_url = (
+            return (
                 result.get("signedURL")
                 or result.get("signedUrl")
                 or result.get("signed_url")
             )
 
+        # Some Supabase versions return an object
+        signed_url = getattr(
+            result,
+            "signedURL",
+            None
+        )
+
+        if signed_url:
+            return signed_url
+
+        signed_url = getattr(
+            result,
+            "signedUrl",
+            None
+        )
+
+        if signed_url:
             return signed_url
 
         return None
 
-    except Exception:
+    except Exception as error:
+
+        print(
+            "SIGNED URL ERROR:",
+            str(error)
+        )
 
         return None
 
@@ -322,10 +399,6 @@ def database_check():
 # AUTHENTICATION
 # =========================================
 
-# -----------------------------------------
-# REGISTER
-# -----------------------------------------
-
 @app.post("/auth/register")
 def register_user(
     request: RegisterRequest
@@ -369,133 +442,130 @@ def register_user(
 
         raise HTTPException(
             status_code=400,
-            detail="Password must contain at least 6 characters."
+            detail=(
+                "Password must contain at least 6 characters."
+            )
         )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
-    # -----------------------------------------
-    # CHECK EMAIL
-    # -----------------------------------------
+    try:
 
-    cursor.execute(
-        """
-        SELECT id
-        FROM users
-        WHERE email = %s
-        """,
-        (email,)
-    )
+        cursor.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE email = %s
+            """,
+            (email,)
+        )
 
-    existing_email = cursor.fetchone()
+        if cursor.fetchone():
 
-    if existing_email:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "An account with this email "
+                    "already exists."
+                )
+            )
 
-        connection.close()
+        cursor.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE university_id = %s
+            """,
+            (university_id,)
+        )
+
+        if cursor.fetchone():
+
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "An account with this University ID "
+                    "already exists."
+                )
+            )
+
+        password_hash = hash_password(
+            password
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO users
+            (
+                name,
+                email,
+                university_id,
+                password_hash
+            )
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                name,
+                email,
+                university_id,
+                password_hash
+            )
+        )
+
+        user_id = cursor.fetchone()["id"]
+
+        cursor.execute(
+            """
+            INSERT INTO student_profile
+            (
+                user_id,
+                name,
+                email,
+                university_id,
+                program,
+                year,
+                bio,
+                skills,
+                linkedin,
+                github
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                user_id,
+                name,
+                email,
+                university_id,
+                program,
+                "2nd Year",
+                "",
+                "",
+                "",
+                ""
+            )
+        )
+
+        connection.commit()
+
+    except HTTPException:
+
+        connection.rollback()
+        raise
+
+    except Exception as error:
+
+        connection.rollback()
 
         raise HTTPException(
-            status_code=409,
-            detail="An account with this email already exists."
+            status_code=500,
+            detail=f"Registration failed: {error}"
         )
 
-    # -----------------------------------------
-    # CHECK UNIVERSITY ID
-    # -----------------------------------------
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM users
-        WHERE university_id = %s
-        """,
-        (university_id,)
-    )
-
-    existing_id = cursor.fetchone()
-
-    if existing_id:
+    finally:
 
         connection.close()
-
-        raise HTTPException(
-            status_code=409,
-            detail="An account with this University ID already exists."
-        )
-
-    # -----------------------------------------
-    # HASH PASSWORD
-    # -----------------------------------------
-
-    password_hash = hash_password(
-        password
-    )
-
-    # -----------------------------------------
-    # CREATE USER
-    # -----------------------------------------
-
-    cursor.execute(
-        """
-        INSERT INTO users
-        (
-            name,
-            email,
-            university_id,
-            password_hash
-        )
-        VALUES (%s, %s, %s, %s)
-        RETURNING id
-        """,
-        (
-            name,
-            email,
-            university_id,
-            password_hash
-        )
-    )
-
-    user_id = cursor.fetchone()["id"]
-
-    # -----------------------------------------
-    # CREATE PROFILE
-    # -----------------------------------------
-
-    cursor.execute(
-        """
-        INSERT INTO student_profile
-        (
-            user_id,
-            name,
-            email,
-            university_id,
-            program,
-            year,
-            bio,
-            skills,
-            linkedin,
-            github
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            user_id,
-            name,
-            email,
-            university_id,
-            program,
-            "2nd Year",
-            "",
-            "",
-            "",
-            ""
-        )
-    )
-
-    connection.commit()
-
-    connection.close()
 
     return {
         "message": "Account created successfully",
@@ -506,9 +576,9 @@ def register_user(
     }
 
 
-# -----------------------------------------
+# =========================================
 # LOGIN
-# -----------------------------------------
+# =========================================
 
 @app.post("/auth/login")
 def login_user(
@@ -524,7 +594,6 @@ def login_user(
     password = request.password
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -547,12 +616,10 @@ def login_user(
             detail="Invalid email or password."
         )
 
-    password_valid = verify_password(
+    if not verify_password(
         password,
         user["password_hash"]
-    )
-
-    if not password_valid:
+    ):
 
         raise HTTPException(
             status_code=401,
@@ -575,9 +642,9 @@ def login_user(
     }
 
 
-# -----------------------------------------
+# =========================================
 # CURRENT USER
-# -----------------------------------------
+# =========================================
 
 @app.get("/auth/me")
 def get_current_user(
@@ -589,7 +656,6 @@ def get_current_user(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -629,10 +695,6 @@ def get_current_user(
 # ACHIEVEMENTS
 # =========================================
 
-# -----------------------------------------
-# GET ALL ACHIEVEMENTS
-# -----------------------------------------
-
 @app.get("/achievements")
 def get_achievements(
     session_token: str
@@ -643,7 +705,6 @@ def get_achievements(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -668,10 +729,6 @@ def get_achievements(
             achievement
         )
 
-        # -----------------------------------------
-        # GENERATE SIGNED CERTIFICATE URL
-        # -----------------------------------------
-
         certificate_path = (
             achievement_data.get(
                 "certificate"
@@ -680,10 +737,20 @@ def get_achievements(
 
         if certificate_path:
 
+            normalized_path = (
+                normalize_certificate_path(
+                    certificate_path
+                )
+            )
+
+            achievement_data[
+                "certificate"
+            ] = normalized_path
+
             achievement_data[
                 "certificate_url"
             ] = create_certificate_signed_url(
-                certificate_path
+                normalized_path
             )
 
         else:
@@ -699,9 +766,9 @@ def get_achievements(
     return result
 
 
-# -----------------------------------------
+# =========================================
 # ADD ACHIEVEMENT
-# -----------------------------------------
+# =========================================
 
 @app.post("/achievements")
 def add_achievement(
@@ -714,44 +781,56 @@ def add_achievement(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO achievements
-        (
-            user_id,
-            title,
-            category,
-            organization,
-            date,
-            description,
-            skills,
-            certificate,
-            visibility
+    try:
+
+        cursor.execute(
+            """
+            INSERT INTO achievements
+            (
+                user_id,
+                title,
+                category,
+                organization,
+                date,
+                description,
+                skills,
+                certificate,
+                visibility
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                user_id,
+                achievement.title,
+                achievement.category,
+                achievement.organization,
+                achievement.date,
+                achievement.description,
+                achievement.skills,
+                achievement.certificate,
+                achievement.visibility
+            )
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (
-            user_id,
-            achievement.title,
-            achievement.category,
-            achievement.organization,
-            achievement.date,
-            achievement.description,
-            achievement.skills,
-            achievement.certificate,
-            achievement.visibility
+
+        achievement_id = cursor.fetchone()["id"]
+
+        connection.commit()
+
+    except Exception as error:
+
+        connection.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not add achievement: {error}"
         )
-    )
 
-    achievement_id = cursor.fetchone()["id"]
+    finally:
 
-    connection.commit()
-
-    connection.close()
+        connection.close()
 
     return {
         "message": "Achievement added successfully",
@@ -759,13 +838,11 @@ def add_achievement(
     }
 
 
-# -----------------------------------------
+# =========================================
 # GET ONE ACHIEVEMENT
-# -----------------------------------------
+# =========================================
 
-@app.get(
-    "/achievements/{achievement_id}"
-)
+@app.get("/achievements/{achievement_id}")
 def get_achievement(
     achievement_id: int,
     session_token: str
@@ -776,7 +853,6 @@ def get_achievement(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -807,10 +883,6 @@ def get_achievement(
         achievement
     )
 
-    # -----------------------------------------
-    # GENERATE SIGNED URL
-    # -----------------------------------------
-
     certificate_path = (
         achievement_data.get(
             "certificate"
@@ -819,10 +891,20 @@ def get_achievement(
 
     if certificate_path:
 
+        normalized_path = (
+            normalize_certificate_path(
+                certificate_path
+            )
+        )
+
+        achievement_data[
+            "certificate"
+        ] = normalized_path
+
         achievement_data[
             "certificate_url"
         ] = create_certificate_signed_url(
-            certificate_path
+            normalized_path
         )
 
     else:
@@ -834,13 +916,11 @@ def get_achievement(
     return achievement_data
 
 
-# -----------------------------------------
+# =========================================
 # UPDATE ACHIEVEMENT
-# -----------------------------------------
+# =========================================
 
-@app.put(
-    "/achievements/{achievement_id}"
-)
+@app.put("/achievements/{achievement_id}")
 def update_achievement(
     achievement_id: int,
     achievement: Achievement,
@@ -852,50 +932,66 @@ def update_achievement(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        UPDATE achievements
-        SET
-            title = %s,
-            category = %s,
-            organization = %s,
-            date = %s,
-            description = %s,
-            skills = %s,
-            certificate = %s,
-            visibility = %s
-        WHERE id = %s
-        AND user_id = %s
-        """,
-        (
-            achievement.title,
-            achievement.category,
-            achievement.organization,
-            achievement.date,
-            achievement.description,
-            achievement.skills,
-            achievement.certificate,
-            achievement.visibility,
-            achievement_id,
-            user_id
+    try:
+
+        cursor.execute(
+            """
+            UPDATE achievements
+            SET
+                title = %s,
+                category = %s,
+                organization = %s,
+                date = %s,
+                description = %s,
+                skills = %s,
+                certificate = %s,
+                visibility = %s
+            WHERE id = %s
+            AND user_id = %s
+            """,
+            (
+                achievement.title,
+                achievement.category,
+                achievement.organization,
+                achievement.date,
+                achievement.description,
+                achievement.skills,
+                achievement.certificate,
+                achievement.visibility,
+                achievement_id,
+                user_id
+            )
         )
-    )
 
-    connection.commit()
+        if cursor.rowcount == 0:
 
-    if cursor.rowcount == 0:
+            connection.rollback()
 
-        connection.close()
+            raise HTTPException(
+                status_code=404,
+                detail="Achievement not found."
+            )
+
+        connection.commit()
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        connection.rollback()
 
         raise HTTPException(
-            status_code=404,
-            detail="Achievement not found."
+            status_code=500,
+            detail=f"Could not update achievement: {error}"
         )
 
-    connection.close()
+    finally:
+
+        connection.close()
 
     return {
         "message": "Achievement updated successfully",
@@ -903,13 +999,11 @@ def update_achievement(
     }
 
 
-# -----------------------------------------
+# =========================================
 # DELETE ACHIEVEMENT
-# -----------------------------------------
+# =========================================
 
-@app.delete(
-    "/achievements/{achievement_id}"
-)
+@app.delete("/achievements/{achievement_id}")
 def delete_achievement(
     achievement_id: int,
     session_token: str
@@ -920,33 +1014,49 @@ def delete_achievement(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        DELETE FROM achievements
-        WHERE id = %s
-        AND user_id = %s
-        """,
-        (
-            achievement_id,
-            user_id
+    try:
+
+        cursor.execute(
+            """
+            DELETE FROM achievements
+            WHERE id = %s
+            AND user_id = %s
+            """,
+            (
+                achievement_id,
+                user_id
+            )
         )
-    )
 
-    connection.commit()
+        if cursor.rowcount == 0:
 
-    if cursor.rowcount == 0:
+            connection.rollback()
 
-        connection.close()
+            raise HTTPException(
+                status_code=404,
+                detail="Achievement not found."
+            )
+
+        connection.commit()
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        connection.rollback()
 
         raise HTTPException(
-            status_code=404,
-            detail="Achievement not found."
+            status_code=500,
+            detail=f"Could not delete achievement: {error}"
         )
 
-    connection.close()
+    finally:
+
+        connection.close()
 
     return {
         "message": "Achievement deleted successfully",
@@ -955,7 +1065,7 @@ def delete_achievement(
 
 
 # =========================================
-# CERTIFICATE UPLOAD (SUPABASE STORAGE)
+# CERTIFICATE UPLOAD
 # =========================================
 
 @app.post(
@@ -976,7 +1086,7 @@ async def upload_certificate(
     )
 
     # =========================================
-    # VALID FILE TYPES
+    # FILE TYPE
     # =========================================
 
     allowed_extensions = {
@@ -1035,12 +1145,11 @@ async def upload_certificate(
         )
 
     # =========================================
-    # BUILD STORAGE PATH
+    # STORAGE PATH
     # =========================================
 
     filename = (
-        f"achievement_"
-        f"{achievement_id}"
+        f"achievement_{achievement_id}"
         f"{extension}"
     )
 
@@ -1069,33 +1178,33 @@ async def upload_certificate(
     )
 
     # =========================================
-    # DELETE OLD FILE IF EXTENSION CHANGED
+    # DELETE OLD FILE
     # =========================================
 
-    old_certificate = achievement["certificate"]
+    old_certificate = (
+        achievement["certificate"]
+    )
 
-    if old_certificate:
+    old_path = normalize_certificate_path(
+        old_certificate
+    )
+
+    if old_path and old_path != storage_path:
 
         try:
 
-            old_path = old_certificate
+            supabase.storage.from_(
+                CERTIFICATE_BUCKET
+            ).remove(
+                [old_path]
+            )
 
-            # If database contains a storage path
-            # such as "123/achievement_5.pdf"
-            if old_path.startswith(
-                f"{user_id}/"
-            ):
+        except Exception as error:
 
-                if old_path != storage_path:
-
-                    supabase.storage.from_(
-                        CERTIFICATE_BUCKET
-                    ).remove(
-                        [old_path]
-                    )
-
-        except Exception:
-            pass
+            print(
+                "OLD CERTIFICATE DELETE WARNING:",
+                str(error)
+            )
 
     # =========================================
     # UPLOAD TO SUPABASE
@@ -1110,13 +1219,18 @@ async def upload_certificate(
             file=file_bytes,
             file_options={
                 "content-type": content_type,
-                "upsert": True
+                "upsert": "true"
             }
         )
 
     except Exception as error:
 
         connection.close()
+
+        print(
+            "SUPABASE UPLOAD ERROR:",
+            str(error)
+        )
 
         raise HTTPException(
             status_code=500,
@@ -1126,51 +1240,72 @@ async def upload_certificate(
         )
 
     # =========================================
-    # SAVE STORAGE PATH IN DATABASE
+    # SAVE STORAGE PATH
     # =========================================
 
-    cursor.execute(
-        """
-        UPDATE achievements
-        SET certificate = %s
-        WHERE id = %s
-        AND user_id = %s
-        """,
-        (
-            storage_path,
-            achievement_id,
-            user_id
-        )
-    )
+    try:
 
-    connection.commit()
+        cursor.execute(
+            """
+            UPDATE achievements
+            SET certificate = %s
+            WHERE id = %s
+            AND user_id = %s
+            """,
+            (
+                storage_path,
+                achievement_id,
+                user_id
+            )
+        )
+
+        if cursor.rowcount == 0:
+
+            connection.rollback()
+            connection.close()
+
+            raise HTTPException(
+                status_code=404,
+                detail="Achievement not found."
+            )
+
+        connection.commit()
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        connection.rollback()
+        connection.close()
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Certificate uploaded but database "
+                f"could not be updated: {error}"
+            )
+        )
+
     connection.close()
 
     # =========================================
     # CREATE SIGNED URL
     # =========================================
 
-    try:
+    signed_url = create_certificate_signed_url(
+        storage_path
+    )
 
-        signed_result = supabase.storage.from_(
-            CERTIFICATE_BUCKET
-        ).create_signed_url(
-            storage_path,
-            3600
-        )
-
-        signed_url = (
-            signed_result.get("signedURL")
-            or signed_result.get("signedUrl")
-        )
-
-    except Exception as error:
+    if not signed_url:
 
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Certificate uploaded, "
-                f"but signed URL could not be created: {error}"
+                "Certificate was uploaded successfully, "
+                "but a signed certificate URL could not "
+                "be created."
             )
         )
 
@@ -1179,27 +1314,16 @@ async def upload_certificate(
     # =========================================
 
     return {
-
-        "message":
-            "Certificate uploaded successfully",
-
-        "achievement_id":
-            achievement_id,
-
-        "certificate":
-            storage_path,
-
-        "certificate_url":
-            signed_url
-
+        "message": "Certificate uploaded successfully",
+        "achievement_id": achievement_id,
+        "certificate": storage_path,
+        "certificate_url": signed_url
     }
+
+
 # =========================================
 # PROFILE
 # =========================================
-
-# -----------------------------------------
-# GET PROFILE
-# -----------------------------------------
 
 @app.get("/profile")
 def get_profile(
@@ -1211,7 +1335,6 @@ def get_profile(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
@@ -1238,9 +1361,9 @@ def get_profile(
     return dict(profile)
 
 
-# -----------------------------------------
+# =========================================
 # UPDATE PROFILE
-# -----------------------------------------
+# =========================================
 
 @app.put("/profile")
 def update_profile(
@@ -1253,107 +1376,107 @@ def update_profile(
     )
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
-    # -----------------------------------------
-    # FIND PROFILE
-    # -----------------------------------------
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM student_profile
-        WHERE user_id = %s
-        LIMIT 1
-        """,
-        (user_id,)
-    )
-
-    existing_profile = cursor.fetchone()
-
-    # -----------------------------------------
-    # UPDATE
-    # -----------------------------------------
-
-    if existing_profile:
-
-        profile_id = existing_profile["id"]
+    try:
 
         cursor.execute(
             """
-            UPDATE student_profile
-            SET
-                name = %s,
-                email = %s,
-                university_id = %s,
-                program = %s,
-                year = %s,
-                bio = %s,
-                skills = %s,
-                linkedin = %s,
-                github = %s
-            WHERE id = %s
-            AND user_id = %s
+            SELECT id
+            FROM student_profile
+            WHERE user_id = %s
+            LIMIT 1
             """,
-            (
-                profile.name,
-                str(profile.email),
-                profile.university_id,
-                profile.program,
-                profile.year,
-                profile.bio,
-                profile.skills,
-                profile.linkedin,
-                profile.github,
-                profile_id,
-                user_id
-            )
+            (user_id,)
         )
 
-    # -----------------------------------------
-    # CREATE
-    # -----------------------------------------
+        existing_profile = cursor.fetchone()
 
-    else:
+        if existing_profile:
 
-        cursor.execute(
-            """
-            INSERT INTO student_profile
-            (
-                user_id,
-                name,
-                email,
-                university_id,
-                program,
-                year,
-                bio,
-                skills,
-                linkedin,
-                github
+            profile_id = existing_profile["id"]
+
+            cursor.execute(
+                """
+                UPDATE student_profile
+                SET
+                    name = %s,
+                    email = %s,
+                    university_id = %s,
+                    program = %s,
+                    year = %s,
+                    bio = %s,
+                    skills = %s,
+                    linkedin = %s,
+                    github = %s
+                WHERE id = %s
+                AND user_id = %s
+                """,
+                (
+                    profile.name,
+                    str(profile.email),
+                    profile.university_id,
+                    profile.program,
+                    profile.year,
+                    profile.bio,
+                    profile.skills,
+                    profile.linkedin,
+                    profile.github,
+                    profile_id,
+                    user_id
+                )
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (
-                user_id,
-                profile.name,
-                str(profile.email),
-                profile.university_id,
-                profile.program,
-                profile.year,
-                profile.bio,
-                profile.skills,
-                profile.linkedin,
-                profile.github
+
+        else:
+
+            cursor.execute(
+                """
+                INSERT INTO student_profile
+                (
+                    user_id,
+                    name,
+                    email,
+                    university_id,
+                    program,
+                    year,
+                    bio,
+                    skills,
+                    linkedin,
+                    github
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    user_id,
+                    profile.name,
+                    str(profile.email),
+                    profile.university_id,
+                    profile.program,
+                    profile.year,
+                    profile.bio,
+                    profile.skills,
+                    profile.linkedin,
+                    profile.github
+                )
             )
+
+            profile_id = cursor.fetchone()["id"]
+
+        connection.commit()
+
+    except Exception as error:
+
+        connection.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save profile: {error}"
         )
 
-        profile_id = cursor.fetchone()["id"]
+    finally:
 
-    connection.commit()
-
-    connection.close()
+        connection.close()
 
     return {
         "message": "Profile saved successfully",
