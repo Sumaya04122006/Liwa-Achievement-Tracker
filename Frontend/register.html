@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 
@@ -141,6 +142,21 @@
                 >
 
 
+                <!-- PROGRAM -->
+
+                <label for="program">
+                    Program
+                </label>
+
+                <input
+                    type="text"
+                    id="program"
+                    placeholder="Enter your program"
+                    autocomplete="off"
+                    required
+                >
+
+
                 <!-- PASSWORD -->
 
                 <label for="password">
@@ -269,6 +285,12 @@
                             .value
                             .trim();
 
+                    const program =
+                        document
+                            .getElementById("program")
+                            .value
+                            .trim();
+
                     const password =
                         document
                             .getElementById("password")
@@ -348,6 +370,19 @@
                     }
 
 
+                    if (!program) {
+
+                        errorBox.textContent =
+                            "Please enter your program.";
+
+                        errorBox.style.display =
+                            "block";
+
+                        return;
+
+                    }
+
+
                     if (password.length < 6) {
 
                         errorBox.textContent =
@@ -400,6 +435,9 @@
 
                                             university_id:
                                                 universityId,
+
+                                            program:
+                                                program,
 
                                             password:
                                                 password
@@ -481,3 +519,4 @@
 </body>
 
 </html>
+```
