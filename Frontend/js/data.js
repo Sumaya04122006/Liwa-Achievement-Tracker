@@ -96,14 +96,6 @@ const defaultProjects = [
 
     {
         id: 1,
-        name: "Liwa Achievement Tracker",
-        description:
-            "A centralized platform for Liwa University students to manage achievements, portfolios and CVs.",
-        technologies: ["HTML", "CSS", "JavaScript", "FastAPI", "SQLite"]
-    },
-
-    {
-        id: 2,
         name: "HireSense AI",
         description:
             "An AI application designed to support smarter recruitment and candidate evaluation.",
@@ -111,7 +103,7 @@ const defaultProjects = [
     },
 
     {
-        id: 3,
+        id: 2,
         name: "NeuroScape City",
         description:
             "Emotion-responsive urban system exploring AI-driven city experiences.",
