@@ -955,7 +955,7 @@ def delete_achievement(
 
 
 # =========================================
-# CERTIFICATE UPLOAD — SUPABASE STORAGE
+# CERTIFICATE UPLOAD (SUPABASE STORAGE)
 # =========================================
 
 @app.post(
@@ -967,17 +967,17 @@ async def upload_certificate(
     session_token: str = ""
 ):
 
-    # -----------------------------------------
+    # =========================================
     # AUTHENTICATION
-    # -----------------------------------------
+    # =========================================
 
     user_id = get_current_user_id(
         session_token
     )
 
-    # -----------------------------------------
+    # =========================================
     # VALID FILE TYPES
-    # -----------------------------------------
+    # =========================================
 
     allowed_extensions = {
         ".pdf",
@@ -999,22 +999,20 @@ async def upload_certificate(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only PDF, PNG, JPG and "
-                "JPEG files are allowed."
+                "Only PDF, PNG, JPG and JPEG files are allowed."
             )
         )
 
-    # -----------------------------------------
+    # =========================================
     # FIND ACHIEVEMENT
-    # -----------------------------------------
+    # =========================================
 
     connection = get_connection()
-
     cursor = connection.cursor()
 
     cursor.execute(
         """
-        SELECT id
+        SELECT id, certificate
         FROM achievements
         WHERE id = %s
         AND user_id = %s
@@ -1036,9 +1034,9 @@ async def upload_certificate(
             detail="Achievement not found."
         )
 
-    # -----------------------------------------
-    # STORAGE PATH
-    # -----------------------------------------
+    # =========================================
+    # BUILD STORAGE PATH
+    # =========================================
 
     filename = (
         f"achievement_"
@@ -1050,20 +1048,58 @@ async def upload_certificate(
         f"{user_id}/{filename}"
     )
 
-    # -----------------------------------------
+    # =========================================
     # READ FILE
-    # -----------------------------------------
+    # =========================================
 
     file_bytes = await certificate.read()
+
+    if not file_bytes:
+
+        connection.close()
+
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded certificate is empty."
+        )
 
     content_type = (
         certificate.content_type
         or "application/octet-stream"
     )
 
-    # -----------------------------------------
+    # =========================================
+    # DELETE OLD FILE IF EXTENSION CHANGED
+    # =========================================
+
+    old_certificate = achievement["certificate"]
+
+    if old_certificate:
+
+        try:
+
+            old_path = old_certificate
+
+            # If database contains a storage path
+            # such as "123/achievement_5.pdf"
+            if old_path.startswith(
+                f"{user_id}/"
+            ):
+
+                if old_path != storage_path:
+
+                    supabase.storage.from_(
+                        CERTIFICATE_BUCKET
+                    ).remove(
+                        [old_path]
+                    )
+
+        except Exception:
+            pass
+
+    # =========================================
     # UPLOAD TO SUPABASE
-    # -----------------------------------------
+    # =========================================
 
     try:
 
@@ -1089,10 +1125,9 @@ async def upload_certificate(
             )
         )
 
-    # -----------------------------------------
-    # IMPORTANT:
-    # SAVE STORAGE PATH, NOT PUBLIC URL
-    # -----------------------------------------
+    # =========================================
+    # SAVE STORAGE PATH IN DATABASE
+    # =========================================
 
     cursor.execute(
         """
@@ -1109,156 +1144,55 @@ async def upload_certificate(
     )
 
     connection.commit()
-
     connection.close()
 
-    # -----------------------------------------
-    # CREATE SIGNED URL IMMEDIATELY
-    # -----------------------------------------
-
-    signed_url = create_certificate_signed_url(
-        storage_path
-    )
-
-    return {
-        "message": "Certificate uploaded successfully",
-        "achievement_id": achievement_id,
-        "certificate": storage_path,
-        "certificate_url": signed_url
-    }
-
-
-# =========================================
-# CERTIFICATE VIEW ENDPOINT
-# =========================================
-
-@app.get(
-    "/achievements/{achievement_id}/certificate"
-)
-def get_certificate(
-    achievement_id: int,
-    session_token: str
-):
-
-    user_id = get_current_user_id(
-        session_token
-    )
-
-    connection = get_connection()
-
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        SELECT certificate
-        FROM achievements
-        WHERE id = %s
-        AND user_id = %s
-        """,
-        (
-            achievement_id,
-            user_id
-        )
-    )
-
-    achievement = cursor.fetchone()
-
-    connection.close()
-
-    if achievement is None:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Achievement not found."
-        )
-
-    storage_path = achievement.get(
-        "certificate"
-    )
-
-    if not storage_path:
-
-        raise HTTPException(
-            status_code=404,
-            detail="No certificate has been uploaded."
-        )
-
-    # -----------------------------------------
-    # HANDLE OLD PUBLIC URL DATA
-    # -----------------------------------------
-
-    if "/storage/v1/object/" in storage_path:
-
-        marker = (
-            f"/storage/v1/object/"
-        )
-
-        try:
-
-            path_part = (
-                storage_path.split(
-                    marker,
-                    1
-                )[1]
-            )
-
-            if path_part.startswith(
-                "public/"
-            ):
-
-                path_part = path_part[
-                    len("public/"):
-                ]
-
-            elif path_part.startswith(
-                "sign/"
-            ):
-
-                path_part = path_part[
-                    len("sign/"):
-                ]
-
-            if path_part.startswith(
-                f"{CERTIFICATE_BUCKET}/"
-            ):
-
-                path_part = path_part[
-                    len(
-                        f"{CERTIFICATE_BUCKET}/"
-                    ):
-                ]
-
-            storage_path = path_part
-
-        except Exception:
-
-            raise HTTPException(
-                status_code=500,
-                detail="Invalid certificate storage path."
-            )
-
-    # -----------------------------------------
+    # =========================================
     # CREATE SIGNED URL
-    # -----------------------------------------
+    # =========================================
 
-    signed_url = create_certificate_signed_url(
-        storage_path
-    )
+    try:
 
-    if not signed_url:
+        signed_result = supabase.storage.from_(
+            CERTIFICATE_BUCKET
+        ).create_signed_url(
+            storage_path,
+            3600
+        )
+
+        signed_url = (
+            signed_result.get("signedURL")
+            or signed_result.get("signedUrl")
+        )
+
+    except Exception as error:
 
         raise HTTPException(
             status_code=500,
-            detail="Could not generate certificate access URL."
+            detail=(
+                f"Certificate uploaded, "
+                f"but signed URL could not be created: {error}"
+            )
         )
 
+    # =========================================
+    # RESPONSE
+    # =========================================
+
     return {
-        "achievement_id": achievement_id,
-        "certificate_url": signed_url,
-        "expires_in": CERTIFICATE_URL_EXPIRY
+
+        "message":
+            "Certificate uploaded successfully",
+
+        "achievement_id":
+            achievement_id,
+
+        "certificate":
+            storage_path,
+
+        "certificate_url":
+            signed_url
+
     }
-
-
 # =========================================
 # PROFILE
 # =========================================
