@@ -181,10 +181,19 @@ document.addEventListener(
 
                         <button
                             class="btn btn-primary"
+                            id="downloadCvButton"
+                        >
+
+                            ⬇ Download PDF
+
+                        </button>
+
+                        <button
+                            class="btn btn-secondary"
                             onclick="window.print()"
                         >
 
-                            🖨 Print / Save PDF
+                            🖨 Print
 
                         </button>
 
@@ -193,7 +202,7 @@ document.addEventListener(
 
                     <!-- CV PAPER -->
 
-                    <div class="cv-paper">
+                    <div class="cv-paper" id="cvPaper">
 
 
                         <!-- HEADER -->
@@ -310,6 +319,119 @@ document.addEventListener(
                 </main>
 
             `);
+
+
+            // =========================================
+            // DOWNLOAD / VIEW AS PDF
+            // =========================================
+            // Generates a real PDF client-side and opens it
+            // in a new tab so the student can choose to save
+            // it as a soft copy or print it from there,
+            // instead of jumping straight into the browser's
+            // physical print dialog.
+
+            const downloadButton =
+                document.getElementById(
+                    "downloadCvButton"
+                );
+
+            const cvPaper =
+                document.getElementById(
+                    "cvPaper"
+                );
+
+            if (downloadButton && cvPaper) {
+
+                downloadButton.addEventListener(
+                    "click",
+                    async function () {
+
+                        const originalText =
+                            downloadButton.textContent;
+
+                        downloadButton.disabled = true;
+
+                        downloadButton.textContent =
+                            "Generating PDF...";
+
+                        const fileName =
+                            `${cvProfile.name || "CV"}-LiwaTrack-CV.pdf`
+                                .replace(/\s+/g, "_");
+
+                        const options = {
+
+                            margin: 0,
+
+                            filename: fileName,
+
+                            image: {
+                                type: "jpeg",
+                                quality: 0.98
+                            },
+
+                            html2canvas: {
+                                scale: 2,
+                                useCORS: true
+                            },
+
+                            jsPDF: {
+                                unit: "in",
+                                format: "a4",
+                                orientation: "portrait"
+                            }
+
+                        };
+
+                        try {
+
+                            if (typeof html2pdf === "undefined") {
+
+                                throw new Error(
+                                    "PDF generator failed to load."
+                                );
+
+                            }
+
+                            const pdfBlobUrl =
+                                await html2pdf()
+                                    .set(options)
+                                    .from(cvPaper)
+                                    .outputPdf("bloburl");
+
+                            // Open the generated PDF in a new tab.
+                            // From there the student can save it
+                            // (soft copy) or print it (hard copy)
+                            // using their browser's PDF viewer.
+
+                            window.open(
+                                pdfBlobUrl,
+                                "_blank"
+                            );
+
+                        } catch (error) {
+
+                            console.error(
+                                "PDF generation failed:",
+                                error
+                            );
+
+                            alert(
+                                "Could not generate the PDF. You can still use the Print button instead."
+                            );
+
+                        } finally {
+
+                            downloadButton.disabled = false;
+
+                            downloadButton.textContent =
+                                originalText;
+
+                        }
+
+                    }
+                );
+
+            }
 
 
         } catch (error) {
