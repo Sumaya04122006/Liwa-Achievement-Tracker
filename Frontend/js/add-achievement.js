@@ -482,9 +482,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     certificate:
                         editingAchievement &&
-                        editingAchievement.certificate
+                        editingAchievement.certificate_url
                             ? String(
-                                editingAchievement.certificate
+                                editingAchievement.certificate_url
                             )
                             : "",
 
