@@ -23,8 +23,9 @@ from database import (
     get_connection
 )
 
+
 # =========================================
-# CERTIFICATE STORAGE (SUPABASE)
+# CERTIFICATE STORAGE — SUPABASE
 # =========================================
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -33,12 +34,19 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     raise RuntimeError(
         "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. "
-        "Set them in Backend/.env (and in Render's environment variables)."
+        "Set them in Backend/.env and in Render's environment variables."
     )
 
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY
+)
 
 CERTIFICATE_BUCKET = "certificates"
+
+# Signed URL validity
+CERTIFICATE_URL_EXPIRY = 3600
+
 
 # =========================================
 # FASTAPI APPLICATION
@@ -49,6 +57,7 @@ app = FastAPI(
     description="Backend API for Liwa University Achievement Tracker",
     version="1.0.0"
 )
+
 
 # =========================================
 # CORS
@@ -61,6 +70,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # =========================================
 # PASSWORD HASHING
@@ -79,9 +89,8 @@ def hash_password(
         600000
     )
 
-    return (
-        f"{salt}${password_hash.hex()}"
-    )
+    return f"{salt}${password_hash.hex()}"
+
 
 def verify_password(
     password: str,
@@ -113,6 +122,7 @@ def verify_password(
 
         return False
 
+
 # =========================================
 # SESSION TOKEN
 # =========================================
@@ -121,11 +131,13 @@ def create_session_token() -> str:
 
     return secrets.token_urlsafe(32)
 
+
 # =========================================
 # ACTIVE SESSIONS
 # =========================================
 
 active_sessions = {}
+
 
 def get_current_user_id(
     session_token: str
@@ -144,6 +156,53 @@ def get_current_user_id(
 
     return user_id
 
+
+# =========================================
+# SUPABASE SIGNED URL
+# =========================================
+
+def create_certificate_signed_url(
+    storage_path: str
+) -> Optional[str]:
+
+    if not storage_path:
+        return None
+
+    try:
+
+        result = (
+            supabase
+            .storage
+            .from_(CERTIFICATE_BUCKET)
+            .create_signed_url(
+                storage_path,
+                CERTIFICATE_URL_EXPIRY
+            )
+        )
+
+        # Supabase Python client normally returns:
+        # {"signedURL": "..."}
+        #
+        # Some versions may return:
+        # {"signedUrl": "..."}
+
+        if isinstance(result, dict):
+
+            signed_url = (
+                result.get("signedURL")
+                or result.get("signedUrl")
+                or result.get("signed_url")
+            )
+
+            return signed_url
+
+        return None
+
+    except Exception:
+
+        return None
+
+
 # =========================================
 # DATABASE STARTUP
 # =========================================
@@ -152,6 +211,7 @@ def get_current_user_id(
 def startup():
 
     create_tables()
+
 
 # =========================================
 # MODELS
@@ -175,6 +235,7 @@ class Achievement(BaseModel):
 
     visibility: Optional[str] = "public"
 
+
 class Profile(BaseModel):
 
     name: str
@@ -195,6 +256,7 @@ class Profile(BaseModel):
 
     github: Optional[str] = ""
 
+
 class RegisterRequest(BaseModel):
 
     name: str
@@ -205,11 +267,15 @@ class RegisterRequest(BaseModel):
 
     password: str
 
+    program: Optional[str] = ""
+
+
 class LoginRequest(BaseModel):
 
     email: EmailStr
 
     password: str
+
 
 # =========================================
 # ROOT
@@ -219,14 +285,10 @@ class LoginRequest(BaseModel):
 def root():
 
     return {
-
-        "message":
-            "LiwaTrack API is running",
-
-        "status":
-            "success"
-
+        "message": "LiwaTrack API is running",
+        "status": "success"
     }
+
 
 # =========================================
 # HEALTH
@@ -236,11 +298,9 @@ def root():
 def health_check():
 
     return {
-
-        "status":
-            "healthy"
-
+        "status": "healthy"
     }
+
 
 # =========================================
 # DATABASE CHECK
@@ -254,11 +314,9 @@ def database_check():
     connection.close()
 
     return {
-
-        "message":
-            "Database connected successfully"
-
+        "message": "Database connected successfully"
     }
+
 
 # =========================================
 # AUTHENTICATION
@@ -275,9 +333,11 @@ def register_user(
 
     name = request.name.strip()
 
-    email = str(
-        request.email
-    ).strip().lower()
+    email = (
+        str(request.email)
+        .strip()
+        .lower()
+    )
 
     university_id = (
         request.university_id.strip()
@@ -285,9 +345,11 @@ def register_user(
 
     password = request.password
 
-    # =========================================
-    # VALIDATION
-    # =========================================
+    program = (
+        request.program.strip()
+        if request.program
+        else ""
+    )
 
     if not name:
 
@@ -307,19 +369,16 @@ def register_user(
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Password must contain "
-                "at least 6 characters."
-            )
+            detail="Password must contain at least 6 characters."
         )
 
     connection = get_connection()
 
     cursor = connection.cursor()
 
-    # =========================================
-    # CHECK EXISTING EMAIL
-    # =========================================
+    # -----------------------------------------
+    # CHECK EMAIL
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -330,9 +389,7 @@ def register_user(
         (email,)
     )
 
-    existing_email = (
-        cursor.fetchone()
-    )
+    existing_email = cursor.fetchone()
 
     if existing_email:
 
@@ -340,15 +397,12 @@ def register_user(
 
         raise HTTPException(
             status_code=409,
-            detail=(
-                "An account with this "
-                "email already exists."
-            )
+            detail="An account with this email already exists."
         )
 
-    # =========================================
-    # CHECK EXISTING UNIVERSITY ID
-    # =========================================
+    # -----------------------------------------
+    # CHECK UNIVERSITY ID
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -359,9 +413,7 @@ def register_user(
         (university_id,)
     )
 
-    existing_id = (
-        cursor.fetchone()
-    )
+    existing_id = cursor.fetchone()
 
     if existing_id:
 
@@ -369,23 +421,20 @@ def register_user(
 
         raise HTTPException(
             status_code=409,
-            detail=(
-                "An account with this "
-                "University ID already exists."
-            )
+            detail="An account with this University ID already exists."
         )
 
-    # =========================================
+    # -----------------------------------------
     # HASH PASSWORD
-    # =========================================
+    # -----------------------------------------
 
     password_hash = hash_password(
         password
     )
 
-    # =========================================
+    # -----------------------------------------
     # CREATE USER
-    # =========================================
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -409,9 +458,9 @@ def register_user(
 
     user_id = cursor.fetchone()["id"]
 
-    # =========================================
+    # -----------------------------------------
     # CREATE PROFILE
-    # =========================================
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -435,7 +484,7 @@ def register_user(
             name,
             email,
             university_id,
-            "Bachelor of Information Technology — AI",
+            program,
             "2nd Year",
             "",
             "",
@@ -449,23 +498,13 @@ def register_user(
     connection.close()
 
     return {
-
-        "message":
-            "Account created successfully",
-
-        "user_id":
-            user_id,
-
-        "name":
-            name,
-
-        "email":
-            email,
-
-        "university_id":
-            university_id
-
+        "message": "Account created successfully",
+        "user_id": user_id,
+        "name": name,
+        "email": email,
+        "university_id": university_id
     }
+
 
 # -----------------------------------------
 # LOGIN
@@ -476,9 +515,11 @@ def login_user(
     request: LoginRequest
 ):
 
-    email = str(
-        request.email
-    ).strip().lower()
+    email = (
+        str(request.email)
+        .strip()
+        .lower()
+    )
 
     password = request.password
 
@@ -518,35 +559,21 @@ def login_user(
             detail="Invalid email or password."
         )
 
-    session_token = (
-        create_session_token()
-    )
+    session_token = create_session_token()
 
     active_sessions[
         session_token
     ] = user["id"]
 
     return {
-
-        "message":
-            "Login successful",
-
-        "session_token":
-            session_token,
-
-        "user_id":
-            user["id"],
-
-        "name":
-            user["name"],
-
-        "email":
-            user["email"],
-
-        "university_id":
-            user["university_id"]
-
+        "message": "Login successful",
+        "session_token": session_token,
+        "user_id": user["id"],
+        "name": user["name"],
+        "email": user["email"],
+        "university_id": user["university_id"]
     }
+
 
 # -----------------------------------------
 # CURRENT USER
@@ -590,23 +617,13 @@ def get_current_user(
         )
 
     return {
-
-        "authenticated":
-            True,
-
-        "user_id":
-            user["id"],
-
-        "name":
-            user["name"],
-
-        "email":
-            user["email"],
-
-        "university_id":
-            user["university_id"]
-
+        "authenticated": True,
+        "user_id": user["id"],
+        "name": user["name"],
+        "email": user["email"],
+        "university_id": user["university_id"]
     }
+
 
 # =========================================
 # ACHIEVEMENTS
@@ -643,10 +660,44 @@ def get_achievements(
 
     connection.close()
 
-    return [
-        dict(achievement)
-        for achievement in achievements
-    ]
+    result = []
+
+    for achievement in achievements:
+
+        achievement_data = dict(
+            achievement
+        )
+
+        # -----------------------------------------
+        # GENERATE SIGNED CERTIFICATE URL
+        # -----------------------------------------
+
+        certificate_path = (
+            achievement_data.get(
+                "certificate"
+            )
+        )
+
+        if certificate_path:
+
+            achievement_data[
+                "certificate_url"
+            ] = create_certificate_signed_url(
+                certificate_path
+            )
+
+        else:
+
+            achievement_data[
+                "certificate_url"
+            ] = None
+
+        result.append(
+            achievement_data
+        )
+
+    return result
+
 
 # -----------------------------------------
 # ADD ACHIEVEMENT
@@ -703,14 +754,10 @@ def add_achievement(
     connection.close()
 
     return {
-
-        "message":
-            "Achievement added successfully",
-
-        "id":
-            achievement_id
-
+        "message": "Achievement added successfully",
+        "id": achievement_id
     }
+
 
 # -----------------------------------------
 # GET ONE ACHIEVEMENT
@@ -745,9 +792,7 @@ def get_achievement(
         )
     )
 
-    achievement = (
-        cursor.fetchone()
-    )
+    achievement = cursor.fetchone()
 
     connection.close()
 
@@ -758,7 +803,36 @@ def get_achievement(
             detail="Achievement not found."
         )
 
-    return dict(achievement)
+    achievement_data = dict(
+        achievement
+    )
+
+    # -----------------------------------------
+    # GENERATE SIGNED URL
+    # -----------------------------------------
+
+    certificate_path = (
+        achievement_data.get(
+            "certificate"
+        )
+    )
+
+    if certificate_path:
+
+        achievement_data[
+            "certificate_url"
+        ] = create_certificate_signed_url(
+            certificate_path
+        )
+
+    else:
+
+        achievement_data[
+            "certificate_url"
+        ] = None
+
+    return achievement_data
+
 
 # -----------------------------------------
 # UPDATE ACHIEVEMENT
@@ -784,7 +858,6 @@ def update_achievement(
     cursor.execute(
         """
         UPDATE achievements
-
         SET
             title = %s,
             category = %s,
@@ -794,7 +867,6 @@ def update_achievement(
             skills = %s,
             certificate = %s,
             visibility = %s
-
         WHERE id = %s
         AND user_id = %s
         """,
@@ -826,14 +898,10 @@ def update_achievement(
     connection.close()
 
     return {
-
-        "message":
-            "Achievement updated successfully",
-
-        "id":
-            achievement_id
-
+        "message": "Achievement updated successfully",
+        "id": achievement_id
     }
+
 
 # -----------------------------------------
 # DELETE ACHIEVEMENT
@@ -881,17 +949,13 @@ def delete_achievement(
     connection.close()
 
     return {
-
-        "message":
-            "Achievement deleted successfully",
-
-        "id":
-            achievement_id
-
+        "message": "Achievement deleted successfully",
+        "id": achievement_id
     }
 
+
 # =========================================
-# CERTIFICATE UPLOAD (SUPABASE STORAGE)
+# CERTIFICATE UPLOAD — SUPABASE STORAGE
 # =========================================
 
 @app.post(
@@ -903,17 +967,17 @@ async def upload_certificate(
     session_token: str = ""
 ):
 
-    # =========================================
+    # -----------------------------------------
     # AUTHENTICATION
-    # =========================================
+    # -----------------------------------------
 
     user_id = get_current_user_id(
         session_token
     )
 
-    # =========================================
+    # -----------------------------------------
     # VALID FILE TYPES
-    # =========================================
+    # -----------------------------------------
 
     allowed_extensions = {
         ".pdf",
@@ -940,9 +1004,9 @@ async def upload_certificate(
             )
         )
 
-    # =========================================
+    # -----------------------------------------
     # FIND ACHIEVEMENT
-    # =========================================
+    # -----------------------------------------
 
     connection = get_connection()
 
@@ -961,9 +1025,7 @@ async def upload_certificate(
         )
     )
 
-    achievement = (
-        cursor.fetchone()
-    )
+    achievement = cursor.fetchone()
 
     if achievement is None:
 
@@ -974,9 +1036,9 @@ async def upload_certificate(
             detail="Achievement not found."
         )
 
-    # =========================================
-    # BUILD STORAGE PATH
-    # =========================================
+    # -----------------------------------------
+    # STORAGE PATH
+    # -----------------------------------------
 
     filename = (
         f"achievement_"
@@ -984,11 +1046,13 @@ async def upload_certificate(
         f"{extension}"
     )
 
-    storage_path = f"{user_id}/{filename}"
+    storage_path = (
+        f"{user_id}/{filename}"
+    )
 
-    # =========================================
-    # READ FILE BYTES
-    # =========================================
+    # -----------------------------------------
+    # READ FILE
+    # -----------------------------------------
 
     file_bytes = await certificate.read()
 
@@ -997,9 +1061,9 @@ async def upload_certificate(
         or "application/octet-stream"
     )
 
-    # =========================================
-    # UPLOAD TO SUPABASE STORAGE
-    # =========================================
+    # -----------------------------------------
+    # UPLOAD TO SUPABASE
+    # -----------------------------------------
 
     try:
 
@@ -1010,7 +1074,7 @@ async def upload_certificate(
             file=file_bytes,
             file_options={
                 "content-type": content_type,
-                "upsert": "true"
+                "upsert": True
             }
         )
 
@@ -1025,17 +1089,10 @@ async def upload_certificate(
             )
         )
 
-    # =========================================
-    # GET PUBLIC URL
-    # =========================================
-
-    database_path = supabase.storage.from_(
-        CERTIFICATE_BUCKET
-    ).get_public_url(storage_path)
-
-    # =========================================
-    # SAVE URL IN DATABASE
-    # =========================================
+    # -----------------------------------------
+    # IMPORTANT:
+    # SAVE STORAGE PATH, NOT PUBLIC URL
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -1045,7 +1102,7 @@ async def upload_certificate(
         AND user_id = %s
         """,
         (
-            database_path,
+            storage_path,
             achievement_id,
             user_id
         )
@@ -1055,22 +1112,152 @@ async def upload_certificate(
 
     connection.close()
 
-    # =========================================
-    # RESPONSE
-    # =========================================
+    # -----------------------------------------
+    # CREATE SIGNED URL IMMEDIATELY
+    # -----------------------------------------
+
+    signed_url = create_certificate_signed_url(
+        storage_path
+    )
 
     return {
-
-        "message":
-            "Certificate uploaded successfully",
-
-        "achievement_id":
-            achievement_id,
-
-        "certificate":
-            database_path
-
+        "message": "Certificate uploaded successfully",
+        "achievement_id": achievement_id,
+        "certificate": storage_path,
+        "certificate_url": signed_url
     }
+
+
+# =========================================
+# CERTIFICATE VIEW ENDPOINT
+# =========================================
+
+@app.get(
+    "/achievements/{achievement_id}/certificate"
+)
+def get_certificate(
+    achievement_id: int,
+    session_token: str
+):
+
+    user_id = get_current_user_id(
+        session_token
+    )
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT certificate
+        FROM achievements
+        WHERE id = %s
+        AND user_id = %s
+        """,
+        (
+            achievement_id,
+            user_id
+        )
+    )
+
+    achievement = cursor.fetchone()
+
+    connection.close()
+
+    if achievement is None:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Achievement not found."
+        )
+
+    storage_path = achievement.get(
+        "certificate"
+    )
+
+    if not storage_path:
+
+        raise HTTPException(
+            status_code=404,
+            detail="No certificate has been uploaded."
+        )
+
+    # -----------------------------------------
+    # HANDLE OLD PUBLIC URL DATA
+    # -----------------------------------------
+
+    if "/storage/v1/object/" in storage_path:
+
+        marker = (
+            f"/storage/v1/object/"
+        )
+
+        try:
+
+            path_part = (
+                storage_path.split(
+                    marker,
+                    1
+                )[1]
+            )
+
+            if path_part.startswith(
+                "public/"
+            ):
+
+                path_part = path_part[
+                    len("public/"):
+                ]
+
+            elif path_part.startswith(
+                "sign/"
+            ):
+
+                path_part = path_part[
+                    len("sign/"):
+                ]
+
+            if path_part.startswith(
+                f"{CERTIFICATE_BUCKET}/"
+            ):
+
+                path_part = path_part[
+                    len(
+                        f"{CERTIFICATE_BUCKET}/"
+                    ):
+                ]
+
+            storage_path = path_part
+
+        except Exception:
+
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid certificate storage path."
+            )
+
+    # -----------------------------------------
+    # CREATE SIGNED URL
+    # -----------------------------------------
+
+    signed_url = create_certificate_signed_url(
+        storage_path
+    )
+
+    if not signed_url:
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not generate certificate access URL."
+        )
+
+    return {
+        "achievement_id": achievement_id,
+        "certificate_url": signed_url,
+        "expires_in": CERTIFICATE_URL_EXPIRY
+    }
+
 
 # =========================================
 # PROFILE
@@ -1116,6 +1303,7 @@ def get_profile(
 
     return dict(profile)
 
+
 # -----------------------------------------
 # UPDATE PROFILE
 # -----------------------------------------
@@ -1134,9 +1322,9 @@ def update_profile(
 
     cursor = connection.cursor()
 
-    # =========================================
-    # FIND THIS USER'S PROFILE
-    # =========================================
+    # -----------------------------------------
+    # FIND PROFILE
+    # -----------------------------------------
 
     cursor.execute(
         """
@@ -1148,24 +1336,19 @@ def update_profile(
         (user_id,)
     )
 
-    existing_profile = (
-        cursor.fetchone()
-    )
+    existing_profile = cursor.fetchone()
 
-    # =========================================
-    # UPDATE PROFILE
-    # =========================================
+    # -----------------------------------------
+    # UPDATE
+    # -----------------------------------------
 
     if existing_profile:
 
-        profile_id = (
-            existing_profile["id"]
-        )
+        profile_id = existing_profile["id"]
 
         cursor.execute(
             """
             UPDATE student_profile
-
             SET
                 name = %s,
                 email = %s,
@@ -1176,7 +1359,6 @@ def update_profile(
                 skills = %s,
                 linkedin = %s,
                 github = %s
-
             WHERE id = %s
             AND user_id = %s
             """,
@@ -1195,9 +1377,9 @@ def update_profile(
             )
         )
 
-    # =========================================
-    # CREATE PROFILE IF MISSING
-    # =========================================
+    # -----------------------------------------
+    # CREATE
+    # -----------------------------------------
 
     else:
 
@@ -1240,11 +1422,6 @@ def update_profile(
     connection.close()
 
     return {
-
-        "message":
-            "Profile saved successfully",
-
-        "id":
-            profile_id
-
+        "message": "Profile saved successfully",
+        "id": profile_id
     }
