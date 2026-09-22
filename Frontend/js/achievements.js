@@ -517,13 +517,13 @@ function renderCards(data) {
                             ================================== -->
 
                             ${
-                                achievement.certificate &&
-                                achievement.certificate !== "true" &&
-                                achievement.certificate !== "false"
+                                achievement.certificate_url &&
+                                achievement.certificate_url !== "true" &&
+                                achievement.certificate_url !== "false"
                                     ? `
 
                                         <a
-                                            href="${achievement.certificate}"
+                                            href="${achievement.certificate_url}"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             class="btn btn-secondary"
